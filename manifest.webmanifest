@@ -1,0 +1,15 @@
+{
+  "name": "Go",
+  "short_name": "Go",
+  "description": "Go contre un bot réglable de 30 kyu à 9 dan +, avec analyse de la partie",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
