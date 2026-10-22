@@ -18,7 +18,13 @@ Le bot, c'est un **vrai réseau KataGo** (le même genre d'IA que les meilleurs 
 
 À savoir :
 - **La première ouverture demande internet** (elle télécharge le réseau, 12 Mo). Ensuite tout est gardé sur le téléphone.
-- Il faut **iOS 16.4 ou plus** (c'est la version qui sait lire le calcul rapide dont le bot a besoin). Sur un téléphone plus ancien, le menu le dit gentiment et le bouton Jouer est grisé.
+- **iOS 16.4 ou plus** : le bot tourne en mode rapide. **Sur un iPhone plus ancien**, il passe tout seul en « mode compatible » (même bot, mêmes coups, mais environ 4 fois plus lent, et l'analyse est plus courte). Le menu l'indique.
+- Seul le « mode d'isolement » de l'iPhone (Réglages › Confidentialité et sécurité) bloque complètement le bot : il coupe le calcul dont il a besoin.
+
+**Si le bot ne répond pas**, ouvre `…/diagnostic.html` (même adresse que l'appli, en remplaçant `index.html` par `diagnostic.html`, ou touche **Diagnostic** quand l'appli affiche « Le bot ne démarre pas »). Cette page teste ton téléphone, chaque fichier sur GitHub (présent ? bonne taille ?), le chargement du réseau et un vrai coup du bot, puis te dit ce qui bloque. Les causes les plus fréquentes :
+- un fichier manquant ou incomplet sur GitHub (surtout `reseau.bin`, 12 Mo) : renvoie-le avec **Add file → Upload files** ;
+- GitHub n'a pas fini de mettre le site à jour (attends 2 minutes) ;
+- une très mauvaise connexion pendant le premier chargement : le bouton **Réessayer** relance le chargement.
 - Si tu remplaces des fichiers plus tard et que l'ancienne version reste affichée, ferme complètement l'appli puis rouvre-la deux fois.
 
 ---
@@ -84,6 +90,7 @@ Ce que j'ai vraiment mesuré (`calibrage.md`) : plus de 750 parties du bot contr
 
 - Je n'ai **pas pu tester sur un vrai iPhone** : le test automatique simule un iPhone dans un navigateur (touchers, écran 390×844 et 320×568). Le bot et l'analyse ont été vérifiés contre le vrai KataGo sur plus de 150 positions, mais la vitesse sur ton téléphone reste à voir.
 - Le réseau est petit (10 blocs, 128 canaux) pour tenir dans 12 Mo : il est très fort, mais moins que les plus gros réseaux de KataGo.
+- Sur un iPhone plus ancien que iOS 16.4, le « mode compatible » marche mais le bot réfléchit environ 4 fois moins vite et l'analyse est plus courte (moins précise). Je l'ai testé sur ordinateur (mêmes coups que le mode rapide), pas sur un vrai téléphone.
 - Pas de synchronisation entre appareils : les parties restent dans l'iPhone (comme Sudoku).
 - Pas de handicap, pas d'annulation de coup, pas d'autre règle que celles ci-dessus.
 - L'analyse est approximative : elle juge avec peu d'explorations pour rester rapide. Un coup « Erreur » peut être discutable ; une partie très déséquilibrée donne des classements peu parlants.
@@ -98,7 +105,8 @@ index.html  styles.css  app.js        l'écran
 plateau.js                            dessin du goban, pastilles, courbe
 moteur.js   worker.js                 le bot et l'analyse, dans des « workers » (l'écran reste fluide)
 goban.js  situation.js  fin.js        les règles, la fin de partie, le comptage
-features.js  moteur_nn.js  nn.wasm  reseau.bin    le réseau KataGo (calcul en WebAssembly)
+features.js  moteur_nn.js  nn.wasm  nn_scalaire.wasm  reseau.bin    le réseau KataGo (calcul en WebAssembly ; nn_scalaire = version de secours sans calcul rapide)
+diagnostic.html                       la page qui cherche pourquoi le bot ne répond pas
 recherche.js  bot.js  niveaux.js  analyse.js      la recherche, les niveaux, la classification des coups
 sw.js  manifest.webmanifest  icons/   pour que ça marche hors ligne et sur l'écran d'accueil
 tests/  outils/  calib/               tests, fabrication du réseau, mesures des niveaux

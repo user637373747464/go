@@ -3,7 +3,7 @@
 // Messages envoyés : pret, erreur, coup, morts, pos, lot
 importScripts('goban.js', 'situation.js', 'features.js', 'moteur_nn.js', 'recherche.js', 'fin.js', 'bot.js', 'analyse.js', 'niveaux.js');
 
-let reseau = null, bot = null;
+let reseau = null, bot = null, modeCourant = '';
 let derniere = null;                // { n, komi, coups, sit } : dernière situation construite (on réutilise l'arbre de recherche)
 const analyses = new Map();
 
@@ -22,18 +22,70 @@ function situationPour(n, komi, coups) {
   return sit;
 }
 
+// Les deux gros fichiers sont gardés sur l'appareil (Cache API) pour ne pas les retélécharger.
+// Si la copie gardée est abîmée, on la jette et on retélécharge une fois.
+const NOM_CACHE = 'go-gros-v1';
+async function lireGros(nom, cache, ignorerCopie) {
+  if (cache && !ignorerCopie) {
+    try {
+      const r = await cache.match(nom);
+      if (r) { const b = await r.arrayBuffer(); if (b.byteLength) return { nom, b, copie: true }; }
+    } catch (e) { /* on retélécharge */ }
+  }
+  const r = await fetch(nom, { cache: 'no-cache' });
+  if (!r.ok) throw new Error(nom + ' introuvable (code ' + r.status + ')');
+  return { nom, b: await r.arrayBuffer(), copie: false };
+}
+
+function simdOk() {
+  try { return WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11])); }
+  catch (e) { return false; }
+}
+
+// charge un fichier wasm + le réseau ; renvoie le réseau prêt à calculer
+async function charger(nomWasm, nomPoids, cache) {
+  const noms = [nomWasm, nomPoids];
+  for (let essai = 0; ; essai++) {
+    const [w, p] = await Promise.all(noms.map((n) => lireGros(n, cache, essai > 0)));
+    let r;
+    try {
+      r = await self.GoNN.creer(w.b, p.b);
+    } catch (e) {
+      if (essai === 0 && (w.copie || p.copie)) {
+        if (cache) for (const n of noms) { try { await cache.delete(n); } catch (e2) { /* rien */ } }
+        continue;
+      }
+      throw e;
+    }
+    if (cache) for (const f of [w, p]) if (!f.copie) { try { cache.put(f.nom, new Response(f.b)).catch(() => {}); } catch (e2) { /* rien */ } }
+    return r;
+  }
+}
+
 async function init(msg) {
   try {
-    const [w, p] = await Promise.all([
-      fetch(msg.wasm || 'nn.wasm').then(r => { if (!r.ok) throw new Error('nn.wasm introuvable'); return r.arrayBuffer(); }),
-      fetch(msg.poids || 'reseau.bin').then(r => { if (!r.ok) throw new Error('reseau.bin introuvable'); return r.arrayBuffer(); }),
-    ]);
-    reseau = await self.GoNN.creer(w, p);
+    let cache = null;
+    try { cache = await caches.open(NOM_CACHE); } catch (e) { cache = null; }
+    // version rapide (SIMD) si le téléphone sait la lire, sinon version de secours (plus lente)
+    const rapide = !msg.scalaire && simdOk();
+    const liste = msg.wasm ? [msg.wasm] : rapide ? ['nn.wasm', 'nn_scalaire.wasm'] : ['nn_scalaire.wasm'];
+    let derniere = null;
+    for (const nom of liste) {
+      try {
+        reseau = await charger(nom, msg.poids || 'reseau.bin', cache);
+        derniere = null; modeCourant = nom === 'nn.wasm' ? 'rapide' : 'compatible';
+        break;
+      } catch (e) {
+        derniere = e;
+        if (!/CompileError|LinkError|wasm|simd/i.test(String(e && (e.name + ' ' + e.message)))) break;   // autre souci (fichier manquant…) : inutile d'essayer l'autre version
+      }
+    }
+    if (derniere || !reseau) throw derniere || new Error('réseau absent');
     self.GoBot.definirTable(self.GONIVEAUX);
     bot = new self.GoBot.Bot(reseau, {});
-    postMessage({ type: 'pret' });
+    postMessage({ type: 'pret', mode: modeCourant });
   } catch (e) {
-    postMessage({ type: 'erreur', msg: String(e && e.message || e), simd: /simd|CompileError|invalid|wasm/i.test(String(e && (e.name + ' ' + e.message))) });
+    postMessage({ type: 'erreur', msg: String(e && e.message || e) });
   }
 }
 

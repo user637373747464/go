@@ -9,7 +9,11 @@
  * Mise en mémoire des activations : [position (avec bord de 1 case)][canal]. Une convolution 3x3 est la somme de
  * 9 produits de matrices décalés. Les positions « bord » sont remises à zéro après chaque normalisation.
  */
+#ifdef SANS_SIMD
+#include "simd_scalaire.h"      /* version de secours, sans SIMD (nn_scalaire.wasm) */
+#else
 #include <wasm_simd128.h>
+#endif
 
 typedef unsigned int u32;
 typedef unsigned char u8;

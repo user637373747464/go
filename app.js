@@ -65,10 +65,19 @@
   let confirmeSuppr = null;
   let origineRevue = 'jeu';
   let erreurMoteur = null;
+  let lenteur = false;          // le bot met longtemps à charger (connexion lente ?)
   const racine = () => document.getElementById('app');
 
-  if (!moteur.simd) erreurMoteur = 'simd';
-  else moteur.attendre().catch((e) => { erreurMoteur = (e && e.simd) ? 'simd' : 'autre'; if (ecran === 'jeu') rendre(); });
+  // on surveille le démarrage du « cerveau » du bot (le réseau se charge dans un worker)
+  function surveillerMoteur() {
+    erreurMoteur = null;
+    if (!moteur.wasm) { erreurMoteur = 'wasm'; return; }
+    lenteur = false;
+    setTimeout(() => { if (!moteur.pret && !erreurMoteur) { lenteur = true; if (ecran === 'jeu') rendre(); } }, 15000);
+    moteur.attendre().then(() => { if (ecran === 'jeu') rendre(); })
+      .catch((e) => { erreurMoteur = (e && e.wasm) ? 'wasm' : 'autre'; if (ecran === 'jeu' || ecran === 'menu') rendre(); });
+  }
+  surveillerMoteur();
 
   /* ---------- parties ---------- */
   function nouvellePartie(n, k, humain) {
@@ -263,12 +272,14 @@
       </div>
       <div class="bloc">${seg('couleur', [{ v: 'noir', t: pierre(NOIR) + 'Noir' }, { v: 'blanc', t: pierre(BLANC) + 'Blanc' }, { v: 'hasard', t: 'Hasard' }], r.couleur)}</div>
       <button class="interrupteur" data-act="confirmer" role="switch" aria-checked="${r.confirmer}"><span>Valider chaque coup</span><i class="sw${r.confirmer ? ' on' : ''}"></i></button>
-      <button class="gros" data-act="jouer"${erreurMoteur === 'simd' ? ' disabled' : ''}>Jouer</button>
+      <button class="gros" data-act="jouer"${erreurMoteur === 'wasm' ? ' disabled' : ''}>Jouer</button>
       <div class="bas">
         ${enCours ? `<button class="second" data-act="reprendre">Reprendre<small>${enCours.n}×${enCours.n} · ${nomNiv(enCours.k)} · coup ${enCours.coups.length}</small></button>` : ''}
         ${nbHist ? `<button class="second" data-act="historique">Parties<small>${nbHist} jouée${nbHist > 1 ? 's' : ''}</small></button>` : ''}
       </div>
-      ${erreurMoteur === 'simd' ? '<p class="avert">Ce navigateur est trop ancien pour le bot (iPhone : iOS 16.4 ou plus).</p>' : ''}
+      ${erreurMoteur === 'wasm' ? '<p class="avert">Ce navigateur bloque le calcul dont le bot a besoin (le mode d\'isolement de l\'iPhone ?).</p>' : ''}
+      ${!moteur.simd && moteur.wasm ? '<p class="avert">Mode compatible (téléphone ancien) : le bot et l\'analyse seront plus lents.</p>' : ''}
+      ${erreurMoteur === 'autre' ? '<p class="avert">Le bot ne démarre pas.</p><div class="bas"><button class="second" data-act="redemarrer" style="align-items:center;min-height:56px">Réessayer</button><button class="second" data-act="diagnostic" style="align-items:center;min-height:56px">Diagnostic</button></div>' : ''}
     </div>`;
   }
 
@@ -291,15 +302,16 @@
     }
     const plateau = PL.svgPlateau(g, opts);
     let message = G.message || '';
-    if (!message && jeu && !moteur.pret && !erreurMoteur) message = 'Le bot se réveille…';
+    if (!message && jeu && !moteur.pret && !erreurMoteur) message = lenteur ? 'Le bot charge encore (12 Mo la 1re fois)… connexion lente ?' : 'Le bot se prépare…';
     if (!message && jeu && G.coups.length === 0 && monTour) message = 'Touchez une case pour jouer.';
-    if (erreurMoteur && jeu) message = erreurMoteur === 'simd' ? 'Ce navigateur est trop ancien pour le bot (iOS 16.4 ou plus).' : 'Le bot ne démarre pas. Rechargez la page.';
+    if (erreurMoteur && jeu) message = erreurMoteur === 'wasm' ? 'Ce navigateur bloque le calcul du bot (mode d\'isolement ?).' : 'Le bot ne démarre pas. Touchez « Diagnostic » pour savoir pourquoi.';
     let actions = '';
     if (jeu) {
       actions = `<button class="act" data-act="passer"${monTour ? '' : ' disabled'}>Passer</button>
         ${stock.reglages.confirmer ? `<button class="act plein" data-act="poser"${monTour && G.fantome != null ? '' : ' disabled'}>Jouer</button>` : ''}
         <button class="act" data-act="abandon"${G.coups.length || monTour ? '' : ' disabled'}>Abandonner</button>`;
       if (G.erreurBot) actions = `<button class="act plein" data-act="reessayer">Réessayer</button><button class="act" data-act="abandon">Abandonner</button>`;
+      if (erreurMoteur === 'autre') actions = `<button class="act plein" data-act="redemarrer">Réessayer</button><button class="act" data-act="diagnostic">Diagnostic</button><button class="act" data-act="abandon">Abandonner</button>`;
     } else if (marq) {
       actions = `<button class="act" data-act="continuer">Continuer à jouer</button><button class="act plein" data-act="valider">Valider</button>`;
     }
@@ -517,6 +529,11 @@
       case 'abandon-non': G.confirmeAbandon = false; rendre(); break;
       case 'abandon-oui': abandonner(); break;
       case 'reessayer': G.erreurBot = false; G.message = ''; demanderBot(); break;
+      case 'redemarrer':
+        moteur.redemarrer(); surveillerMoteur();
+        if (G) { G.erreurBot = false; G.pense = false; G.message = ''; }
+        rendre(); if (G) demanderBot(); break;
+      case 'diagnostic': location.href = 'diagnostic.html'; break;
       case 'continuer': continuerAJouer(); break;
       case 'valider': valider(); break;
       case 'voir-analyse': if (G && G.entree && G.entree.analyse) { origineRevue = 'jeu'; ouvrirRevue(G.entree, 'resume'); } break;

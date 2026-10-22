@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<title>Go · Diagnostic</title>
+<style>
+  :root { --fond:#000; --surface:#121214; --trait:#2e2e32; --texte:#fff; --gris:#8e8e93; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--fond); color: var(--texte);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Rounded", system-ui, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: max(18px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom)); }
+  h1 { font-size: 26px; margin: 8px 0 4px; }
+  p { color: var(--gris); margin: 0 0 14px; }
+  .verdict { background: var(--surface); border: 1.5px solid var(--trait); border-radius: 22px; padding: 16px 18px; margin: 14px 0; font-weight: 700; font-size: 18px; }
+  .verdict small { display: block; color: var(--gris); font-weight: 500; font-size: 14px; margin-top: 4px; }
+  .verdict.ok { background: #fff; color: #000; border-color: #fff; }
+  .verdict.ok small { color: #444; }
+  .etape { background: var(--surface); border-radius: 22px; padding: 14px 16px; margin: 10px 0; }
+  .etape h2 { font-size: 16px; margin: 0; display: flex; gap: 10px; align-items: center; }
+  .puce { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--gris); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex: none; }
+  .puce.ok { background: #fff; border-color: #fff; color: #000; }
+  .puce.ko { background: #000; border-color: #fff; color: #fff; }
+  .puce.cours { border-style: dashed; }
+  ul { list-style: none; margin: 8px 0 0; padding: 0; font-size: 14px; color: var(--gris); }
+  li { padding: 3px 0; word-break: break-word; }
+  li b { color: var(--texte); font-weight: 600; }
+  li.ko { color: #fff; }
+  li.ko b::before { content: "✕ "; }
+  li.ok b::before { content: "✓ "; }
+  button { font: inherit; font-weight: 700; border: 0; border-radius: 999px; padding: 14px 22px; background: #fff; color: #000; width: 100%; margin-top: 8px; cursor: pointer; }
+  button.second { background: var(--surface); color: #fff; border: 1.5px solid var(--trait); }
+  a { color: #fff; }
+  pre { white-space: pre-wrap; word-break: break-word; font: 12px/1.4 ui-monospace, Menlo, monospace; color: var(--gris); background: var(--surface); border-radius: 16px; padding: 12px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Diagnostic</h1>
+  <p>Cette page teste, étape par étape, pourquoi le bot ne répond pas. Attends la fin (jusqu'à une minute), puis fais une capture d'écran.</p>
+  <div id="verdict" class="verdict">Test en cours…<small>Ne ferme pas la page.</small></div>
+  <div id="etapes"></div>
+  <button id="relancer" class="second" type="button">Relancer le test</button>
+  <button id="copier" class="second" type="button">Copier le rapport</button>
+  <pre id="rapport"></pre>
+  <p style="margin-top:14px"><a href="index.html">← Retour à l'appli</a></p>
+</main>
+<script>
+(function () {
+  'use strict';
+  // Fichiers dont l'appli a besoin. Les tailles ne sont données que pour les deux gros fichiers.
+  const FICHIERS = ['index.html', 'styles.css', 'app.js', 'moteur.js', 'plateau.js', 'worker.js', 'goban.js', 'situation.js', 'features.js',
+    'moteur_nn.js', 'recherche.js', 'fin.js', 'niveaux.js', 'bot.js', 'analyse.js', 'manifest.webmanifest', 'nn.wasm', 'nn_scalaire.wasm', 'reseau.bin'];
+  const TAILLES = { 'reseau.bin': 11984540, 'nn.wasm': 17511, 'nn_scalaire.wasm': 17442 };
+  const FORCE = /[?&]mode=compatible/.test(location.search);     // ouvrir diagnostic.html?mode=compatible pour tester la version de secours
+  const LETTRES = 'ABCDEFGHJKLMNOPQRST';
+  const el = (id) => document.getElementById(id);
+  let rapport = [];
+
+  function etape(titre) {
+    const d = document.createElement('div'); d.className = 'etape';
+    d.innerHTML = '<h2><span class="puce cours">…</span><span></span></h2><ul></ul>';
+    d.querySelector('h2 span:last-child').textContent = titre;
+    el('etapes').appendChild(d);
+    const ul = d.querySelector('ul'), puce = d.querySelector('.puce');
+    return {
+      ligne(txt, etat, gras) {
+        const li = document.createElement('li'); if (etat) li.className = etat;
+        if (gras) { const b = document.createElement('b'); b.textContent = gras; li.appendChild(b); li.appendChild(document.createTextNode(' ' + txt)); }
+        else li.textContent = txt;
+        ul.appendChild(li);
+        rapport.push((etat === 'ko' ? '✕ ' : etat === 'ok' ? '✓ ' : '  ') + (gras ? gras + ' ' : '') + txt);
+      },
+      fin(ok) { puce.className = 'puce ' + (ok ? 'ok' : 'ko'); puce.textContent = ok ? '✓' : '✕'; rapport.push(titre + ' : ' + (ok ? 'OK' : 'PROBLÈME')); rapport.push(''); },
+    };
+  }
+  const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
+  const mo = (n) => (n / 1e6).toFixed(1).replace('.', ',') + ' Mo';
+
+  async function lancer() {
+    el('etapes').innerHTML = ''; rapport = [];
+    el('verdict').className = 'verdict'; el('verdict').innerHTML = 'Test en cours…<small>Ne ferme pas la page.</small>';
+    let problemes = [];
+    rapport.push('Go · diagnostic · ' + new Date().toISOString());
+    rapport.push(location.href); rapport.push('');
+
+    // 1. l'appareil
+    let e = etape('Ton appareil');
+    const ua = navigator.userAgent;
+    const m = /OS (\d+)[_.](\d+)/.exec(ua);
+    e.ligne(ua.slice(0, 140), '');
+    let simd = false;
+    try { simd = WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11])); } catch (x) { simd = false; }
+    const wasm = typeof WebAssembly === 'object' && typeof WebAssembly.instantiate === 'function';
+    e.ligne(wasm ? 'oui' : 'NON (c\'est ça qui bloque le bot : le « mode d\'isolement » de l\'iPhone coupe WebAssembly)', wasm ? 'ok' : 'ko', 'WebAssembly :');
+    if (!wasm) problemes.push('ton navigateur bloque WebAssembly (mode d\'isolement de l\'iPhone ? Réglages › Confidentialité et sécurité › Mode d\'isolement)');
+    e.ligne(simd && !FORCE ? 'oui : mode rapide' : (FORCE ? 'mode compatible demandé dans l\'adresse' : 'non : le bot utilisera le mode compatible (plus lent, mais il marche)' + (m ? ' (ton iOS : ' + m[1] + '.' + m[2] + ' ; le mode rapide demande iOS 16.4)' : '')), 'ok', 'Calcul rapide (SIMD) :');
+    const wk = typeof Worker !== 'undefined';
+    e.ligne(wk ? 'oui' : 'NON', wk ? 'ok' : 'ko', 'Calculs en arrière-plan (Worker) :');
+    if (!wk) problemes.push('ton navigateur ne gère pas les Workers');
+    e.ligne(String(navigator.hardwareConcurrency || '?'), '', 'Cœurs :');
+    e.fin(wasm && wk);
+    if (!wasm || !wk) return fin(problemes.filter(Boolean));
+
+    // 2. les fichiers
+    e = etape('Les fichiers sur le site');
+    let tousOk = true;
+    for (const f of FICHIERS) {
+      try {
+        const t0 = performance.now();
+        const r = await fetch(f + '?diag=' + Date.now(), { cache: 'no-store' });
+        const facultatif = (f === 'nn_scalaire.wasm' && simd && !FORCE) || (f === 'nn.wasm' && (!simd || FORCE));     // pas utilisé sur cet appareil
+        if (!r.ok) { e.ligne('absent (code ' + r.status + ')', 'ko', f); if (facultatif) continue; tousOk = false; problemes.push('le fichier « ' + f + ' » est introuvable sur ton site GitHub (code ' + r.status + ') : renvoie-le'); continue; }
+        const b = await r.arrayBuffer();
+        const attendu = TAILLES[f];
+        if (attendu && b.byteLength !== attendu) {
+          e.ligne(mo(b.byteLength) + ' au lieu de ' + mo(attendu) + ' (' + b.byteLength + ' / ' + attendu + ' octets) : fichier abîmé ou incomplet', 'ko', f); if (facultatif) continue; tousOk = false;
+          problemes.push('le fichier « ' + f + ' » n\'a pas la bonne taille (' + b.byteLength + ' octets au lieu de ' + attendu + ') : renvoie-le sur GitHub');
+        } else if (!b.byteLength) { e.ligne('vide', 'ko', f); tousOk = false; problemes.push('le fichier « ' + f + ' » est vide : renvoie-le'); }
+        else e.ligne((b.byteLength > 100000 ? mo(b.byteLength) : Math.round(b.byteLength / 100) / 10 + ' Ko') + ' · ' + Math.round(performance.now() - t0) + ' ms', 'ok', f);
+      } catch (x) { e.ligne('erreur réseau (' + (x && x.message || x) + ')', 'ko', f); tousOk = false; problemes.push('impossible de télécharger « ' + f + ' » (réseau coupé ?)'); }
+    }
+    e.fin(tousOk);
+
+    // 3. le cerveau
+    e = etape('Le cerveau du bot (réseau KataGo)');
+    const w = await demarrer(e);
+    if (!w) { e.fin(false); problemes.push('le cerveau du bot ne démarre pas (voir le détail ci-dessus)'); return fin(problemes); }
+    e.fin(true);
+
+    // 4. un coup
+    e = etape('Un coup du bot (9×9, niveau 12 kyu)');
+    const ok = await unCoup(w, e);
+    e.fin(ok);
+    if (!ok) problemes.push('le cerveau est chargé mais ne sait pas jouer un coup (voir le détail ci-dessus)');
+    try { w.terminate(); } catch (x) { /* rien */ }
+    fin(problemes.filter(Boolean));
+  }
+
+  function demarrer(e) {
+    return new Promise((resolve) => {
+      let w, fini = false;
+      const t0 = performance.now();
+      const terminer = (v) => { if (fini) return; fini = true; clearTimeout(minuteur); resolve(v); };
+      const minuteur = setTimeout(() => { e.ligne('toujours pas prêt après 90 s (connexion trop lente ?)', 'ko', 'Délai dépassé.'); try { w.terminate(); } catch (x) {} terminer(null); }, 90000);
+      try { w = new Worker('worker.js'); } catch (x) { e.ligne(String(x && x.message || x), 'ko', 'Impossible de créer le worker :'); return terminer(null); }
+      w.onerror = (ev) => { e.ligne((ev && ev.message ? ev.message : 'erreur inconnue') + (ev && ev.filename ? ' [' + ev.filename.split('/').pop() + ':' + ev.lineno + ']' : ''), 'ko', 'Le worker a planté :'); terminer(null); };
+      w.onmessage = (ev) => {
+        const d = ev.data || {};
+        if (d.type === 'pret') { e.ligne(((performance.now() - t0) / 1000).toFixed(1).replace('.', ',') + ' s (mode ' + (d.mode || '?') + ')', 'ok', 'Cerveau prêt en'); terminer(w); }
+        else if (d.type === 'erreur') { e.ligne(String(d.msg).slice(0, 300), 'ko', 'Erreur du cerveau :'); terminer(null); }
+      };
+      w.postMessage({ type: 'init', scalaire: FORCE });
+    });
+  }
+
+  function unCoup(w, e) {
+    return new Promise((resolve) => {
+      const t0 = performance.now();
+      const minuteur = setTimeout(() => { e.ligne('pas de réponse après 60 s', 'ko', 'Délai dépassé.'); resolve(false); }, 60000);
+      w.onerror = (ev) => { clearTimeout(minuteur); e.ligne(String(ev && ev.message || 'erreur'), 'ko', 'Le worker a planté :'); resolve(false); };
+      w.onmessage = (ev) => {
+        const d = ev.data || {};
+        if (d.type === 'coup') {
+          clearTimeout(minuteur);
+          let nom = 'passe';
+          if (d.loc > 1) { const x = d.loc % 10 - 1, y = Math.floor(d.loc / 10) - 1; nom = LETTRES[x] + (9 - y); }
+          e.ligne(nom + ' en ' + Math.round(performance.now() - t0) + ' ms', 'ok', 'Le bot joue :');
+          resolve(true);
+        } else if (d.type === 'erreur') { clearTimeout(minuteur); e.ligne(String(d.msg).slice(0, 300), 'ko', 'Erreur :'); resolve(false); }
+      };
+      w.postMessage({ type: 'jouer', id: 1, n: 9, komi: 6.5, coups: [], k: 12 });
+    });
+  }
+
+  function fin(problemes) {
+    const v = el('verdict');
+    if (!problemes.length) {
+      v.className = 'verdict ok'; v.innerHTML = 'Tout fonctionne ✓<small>Le bot marche sur cet appareil. Si l\'appli ne répond toujours pas, ferme-la complètement, rouvre-la, et envoie-moi une capture de l\'écran du bot.</small>';
+    } else {
+      v.className = 'verdict'; v.innerHTML = '';
+      const t = document.createElement('div'); t.textContent = 'Problème trouvé';
+      const s = document.createElement('small'); s.textContent = problemes.join(' · ');
+      v.appendChild(t); v.appendChild(s);
+    }
+    rapport.push('Résultat : ' + (problemes.length ? problemes.join(' | ') : 'tout fonctionne'));
+    el('rapport').textContent = rapport.join('\n');
+    window.__diagnostic = { fini: true, problemes };
+  }
+
+  el('relancer').addEventListener('click', () => { window.__diagnostic = null; lancer(); });
+  el('copier').addEventListener('click', () => {
+    const t = el('rapport').textContent;
+    try { navigator.clipboard.writeText(t).then(() => { el('copier').textContent = 'Copié ✓'; setTimeout(() => { el('copier').textContent = 'Copier le rapport'; }, 1500); }, () => {}); } catch (x) { /* rien */ }
+  });
+  lancer().catch((x) => { el('verdict').textContent = 'Le diagnostic lui-même a planté : ' + (x && x.message || x); window.__diagnostic = { fini: true, problemes: ['plantage'] }; });
+})();
+</script>
+</body>
+</html>
